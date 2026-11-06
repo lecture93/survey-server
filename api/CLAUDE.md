@@ -6,3 +6,4 @@
 - 가게 목록은 `RESTAURANTS` 하나만 고친다. DB `picks`에 id가 저장되므로 id를 바꾸면 기존 표가 빠진다.
 - `.backup-clean/`은 git·배포에서 빠진 예전 정리본 사본이다.
 - AI 입력창(`ai.py`, OpenRouter, 표준 라이브러리): `POST /api/ai/vote {text}` → 모델이 자연어를 `{picks,nickname,comment}`로 바꾸고 `parse_vote` 규칙으로 정리해 바로 저장(201, 고를 가게가 없으면 400). `POST /api/ai/ask {question}` → `results()`와 최근 300표를 근거로 답변. 키 `OPENROUTER_API_KEY`가 없으면 503, OpenRouter 실패는 502. 모델은 `OPENROUTER_MODEL`(기본 `anthropic/claude-sonnet-5.5`). 테스트는 `tests/test_ai.py`(가짜 OpenRouter, `OPENROUTER_BASE_URL`).
+- 왼쪽 챗봇(`public/chat.js`, 두 페이지 공통): `POST /api/ai/chat {messages:[{role,content}]}`(최근 12개, user 메시지 500자 이하, 마지막은 user) → 모델이 `action`을 고른다. `vote`면 `parse_vote` 규칙으로 정리해 저장하고 201 `{reply, vote:{id,picks,nickname,comment}}`, 고를 가게가 없거나 `answer`면 200 `{reply, vote:null}`. 데이터 근거는 `ask`와 같은 `_results_context`.

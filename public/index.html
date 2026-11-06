@@ -32,21 +32,6 @@
   .note { margin-top:16px; font-size:13px; color:var(--muted); text-align:center; }
   .note a { color:var(--muted); }
 
-  /* AI 입력창 */
-  .ai { margin-top:16px; background:var(--card); border-radius:16px; padding:22px; box-shadow:0 4px 20px rgba(0,0,0,.06); }
-  .ai h2 { margin:0 0 4px; font-size:17px; }
-  .ai p.hint-line { margin:0 0 12px; color:var(--muted); font-size:13px; }
-  .ai form { display:flex; gap:8px; }
-  .ai input { flex:1; min-width:0; padding:12px; border:1px solid #e5e7eb; border-radius:10px; font:inherit; }
-  .ai button { width:auto; flex:none; padding:12px 18px; border:0; border-radius:10px; background:var(--accent); color:#fff; font-weight:700; font-size:15px; cursor:pointer; }
-  .ai button:disabled { opacity:.6; cursor:default; }
-  .ai .out { margin-top:12px; font-size:14px; line-height:1.6; white-space:pre-wrap; }
-  .ai .out:empty { display:none; }
-  .ai .out.err { color:#b91c1c; }
-  .ai .log { list-style:none; margin:12px 0 0; padding:0; font-size:14px; line-height:1.6; }
-  .ai .log li { padding:10px 0; border-top:1px solid #eef0f6; white-space:pre-wrap; }
-  .ai .log li.q { color:var(--muted); font-weight:600; }
-  .ai .log li.err { color:#b91c1c; }
 </style>
 </head>
 <body>
@@ -81,15 +66,6 @@
       <a href="/result">결과 보러 가기 →</a>
     </div>
   </div>
-  <section class="ai" id="ai-vote">
-    <h2>✍️ 말로 투표하기</h2>
-    <p class="hint-line">예: "송 칼국수랑 케르반 좋았어요. 닉네임은 점심왕, 송은 수제비 추천" → AI가 알아서 투표해요.</p>
-    <form id="ai-vote-form">
-      <input type="text" id="ai-vote-text" maxlength="500" placeholder="어떤 가게가 좋았는지 편하게 적어 주세요" autocomplete="off">
-      <button type="submit">AI로 투표</button>
-    </form>
-    <div class="out" id="ai-vote-out"></div>
-  </section>
   <p class="note">※ 투표는 이 노트북의 서버를 거쳐 DB(survey.db)에 저장돼요. <a href="/result">결과 보기</a></p>
 </div>
 
@@ -145,36 +121,6 @@
     }
   }
 </script>
-<script>
-  // AI로 투표: 자연어 → 서버(/api/ai/vote)가 OpenRouter로 해석해 바로 저장
-
-  async function aiPost(url, body) {
-    var res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
-    var data = {};
-    try { data = await res.json(); } catch (e) { }
-    if (!res.ok) throw new Error(data.error || ('오류 ' + res.status));
-    return data;
-  }
-
-  document.getElementById('ai-vote-form').addEventListener('submit', async function (ev) {
-    ev.preventDefault();
-    var input = document.getElementById('ai-vote-text');
-    var out = document.getElementById('ai-vote-out');
-    var btn = this.querySelector('button');
-    var text = input.value.trim();
-    if (!text) { input.focus(); return; }
-    btn.disabled = true; btn.textContent = '투표하는 중...';
-    out.className = 'out'; out.textContent = '';
-    try {
-      var d = await aiPost('/api/ai/vote', { text: text });
-      out.textContent = '✅ ' + (d.reply || '투표했어요.') + '\n선택: ' + d.picks.join(', ')
-        + (d.nickname ? ' · 닉네임: ' + d.nickname : '') + (d.comment ? '\n한줄평: ' + d.comment : '');
-      input.value = '';
-    } catch (e) {
-      out.className = 'out err'; out.textContent = e.message;
-    }
-    btn.disabled = false; btn.textContent = 'AI로 투표';
-  });
-</script>
+<script src="/chat.js" defer></script>
 </body>
 </html>
