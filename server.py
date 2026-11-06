@@ -70,8 +70,14 @@ def load_env(path=os.path.join(BASE, ".env.local")):
 
 
 load_env()
-SUPABASE_URL = os.environ["SUPABASE_URL"].removesuffix("/")
-SUPABASE_KEY = os.environ.get("SUPABASE_SECRET_KEY") or os.environ["SUPABASE_SERVICE_ROLE_KEY"]
+SUPABASE_URL = os.environ.get("SUPABASE_URL", "").removesuffix("/")
+SUPABASE_KEY = os.environ.get("SUPABASE_SECRET_KEY") or os.environ.get("SUPABASE_SERVICE_ROLE_KEY")
+if not (SUPABASE_URL and SUPABASE_KEY):
+    # 트레이스백 대신 무엇을 하면 되는지 알려 준다 (예전엔 KeyError로 죽었다)
+    raise SystemExit(
+        "Supabase 설정이 없어요: SUPABASE_URL과 SUPABASE_SECRET_KEY(또는 SUPABASE_SERVICE_ROLE_KEY)가 필요해요.\n"
+        "이 폴더에서 `vercel env pull .env.local`로 받거나 환경변수로 넣어 주세요."
+    )
 
 
 # ---------- Supabase ----------
