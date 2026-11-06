@@ -5,3 +5,4 @@
 - `server.py` 흐름: `load_env` → `supabase`/`all_votes` → `results`/`export_csv`/`parse_vote`/`save_vote` → `Handler.route_get`/`route_post`/`static_file`. 라우트 예외는 `_respond`가 본문 없는 500으로 보낸다.
 - 가게 목록은 `RESTAURANTS` 하나만 고친다. DB `picks`에 id가 저장되므로 id를 바꾸면 기존 표가 빠진다.
 - `.backup-clean/`은 git·배포에서 빠진 예전 정리본 사본이다.
+- AI 입력창(`ai.py`, OpenRouter, 표준 라이브러리): `POST /api/ai/vote {text}` → 모델이 자연어를 `{picks,nickname,comment}`로 바꾸고 `parse_vote` 규칙으로 정리해 바로 저장(201, 고를 가게가 없으면 400). `POST /api/ai/ask {question}` → `results()`와 최근 300표를 근거로 답변. 키 `OPENROUTER_API_KEY`가 없으면 503, OpenRouter 실패는 502. 모델은 `OPENROUTER_MODEL`(기본 `anthropic/claude-sonnet-5.5`). 테스트는 `tests/test_ai.py`(가짜 OpenRouter, `OPENROUTER_BASE_URL`).
