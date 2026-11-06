@@ -54,58 +54,53 @@
   <p class="note">서버 DB에서 5초마다 새로 읽어와요 · 마지막 갱신 <span id="updated">-</span></p>
 </div>
 
-<!-- 결과 그리기 (1분마다) -->
-<script type="text/x-legacy" id="loadcode">
-  try {
-    var x = new XMLHttpRequest();
-    x.open('GET', '/api/results', false);
-    x.send(null);
-    var d = JSON.parse(x.responseText);
-    var leader = '-';
-    if (d.voters && d.ranking[0].votes) { leader = d.ranking[0].name; }
-    leader = String(leader).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
-    document.getElementById('kpis').innerHTML = ''
-      + '\n        <div class="kpi"><div class="label">참여 인원</div><div class="value">' + d.voters + '명</div></div>'
-      + '\n        <div class="kpi"><div class="label">현재 1위</div><div class="value">' + leader + '</div></div>'
-      + '\n        <div class="kpi"><div class="label">총 표 수</div><div class="value">' + d.totalVotes + '표</div></div>';
-
-    var max = 1;
-    for (var i = 0; i < d.ranking.length; i++) { if (d.ranking[i].votes > max) { max = d.ranking[i].votes; } }
-    var rank = 0; var prev = null; var h = '';
-    for (var i = 0; i < d.ranking.length; i++) {
-      var r = d.ranking[i];
-      if (r.votes !== prev) { rank = i + 1; prev = r.votes; }   // 동점이면 다음 순위로
-      var cls = 'row';
-      if (r.votes > 0 && rank <= 3) { cls = 'row top'; }
-      h = h + '<div class="' + cls + '">'
-        + '\n          <span class="rank">' + rank + '</span>'
-        + '\n          <span class="name"><b>' + String(r.name).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;') + '</b><small>' + String(r.category).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;') + '</small></span>'
-        + '\n          <div class="bar"><i style="width:' + (r.votes / max * 100) + '%"></i></div>'
-        + '\n          <span class="num">' + r.votes + '표 <small>' + r.pct + '%</small></span></div>';
-    }
-    document.getElementById('ranking').innerHTML = h;
-
-    var h2 = '';
-    if (d.comments.length == 0) {
-      h2 = '<li style="color:var(--muted)">아직 한줄평이 없어요.</li>';
-    }
-    for (var i = 0; i < d.comments.length; i++) {
-      var cm = d.comments[i];
-      h2 = h2 + '<li>' + String(cm.text).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;')
-        + '\n            <span class="meta">' + String(cm.nickname).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;')
-        + ' · ' + String(cm.picks.join(', ')).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;')
-        + ' · ' + String(cm.at).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;') + '</span></li>';
-    }
-    document.getElementById('comments').innerHTML = h2;
-    document.getElementById('updated').innerHTML = new Date().toLocaleTimeString('ko-KR');
-  } catch (err) {
-    document.getElementById('updated').innerHTML = '서버 연결 실패';
-  }
-</script>
 <script>
-  // 최초 1회만 실행
-  eval(document.getElementById('loadcode').text);
-  setInterval("eval(document.getElementById('loadcode').text)", 5000);
+  function esc(v) {
+    return String(v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+  }
+
+  // 결과 그리기: 처음 한 번, 이후 5초마다
+  async function load() {
+    try {
+      var res = await fetch('/api/results');
+      if (!res.ok) throw new Error(res.status);
+      var d = await res.json();
+      var leader = (d.voters && d.ranking[0].votes) ? d.ranking[0].name : '-';
+      document.getElementById('kpis').innerHTML = ''
+        + '<div class="kpi"><div class="label">참여 인원</div><div class="value">' + d.voters + '명</div></div>'
+        + '<div class="kpi"><div class="label">현재 1위</div><div class="value">' + esc(leader) + '</div></div>'
+        + '<div class="kpi"><div class="label">총 표 수</div><div class="value">' + d.totalVotes + '표</div></div>';
+
+      var max = Math.max(1, ...d.ranking.map(function (r) { return r.votes; }));
+      var rank = 0, prev = null, h = '';
+      d.ranking.forEach(function (r, i) {
+        if (r.votes !== prev) { rank = i + 1; prev = r.votes; }   // 동점이면 같은 순위
+        var cls = (r.votes > 0 && rank <= 3) ? 'row top' : 'row';
+        h += '<div class="' + cls + '">'
+          + '<span class="rank">' + rank + '</span>'
+          + '<span class="name"><b>' + esc(r.name) + '</b><small>' + esc(r.category) + '</small></span>'
+          + '<div class="bar"><i style="width:' + (r.votes / max * 100) + '%"></i></div>'
+          + '<span class="num">' + r.votes + '표 <small>' + r.pct + '%</small></span></div>';
+      });
+      document.getElementById('ranking').innerHTML = h;
+
+      var h2 = d.comments.length ? '' : '<li style="color:var(--muted)">아직 한줄평이 없어요.</li>';
+      d.comments.forEach(function (cm) {
+        h2 += '<li>' + esc(cm.text)
+          + '<span class="meta">' + esc(cm.nickname)
+          + ' · ' + esc(cm.picks.join(', '))
+          + ' · ' + esc(cm.at) + '</span></li>';
+      });
+      document.getElementById('comments').innerHTML = h2;
+      document.getElementById('updated').textContent = new Date().toLocaleTimeString('ko-KR');
+    } catch (err) {
+      document.getElementById('updated').textContent = '서버 연결 실패';
+    }
+  }
+
+  load();
+  setInterval(load, 5000);
 </script>
 </body>
 </html>

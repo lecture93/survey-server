@@ -36,7 +36,7 @@
 <body>
 <div class="wrap">
   <div class="card">
-    <form id="form" onsubmit="eval(document.getElementById('submitcode').text); return false;">
+    <form id="form">
       <h1>🍽️ 삼성역 맛집 투표</h1>
       <p class="sub">가 봤거나 가고 싶은 곳을 모두 골라 주세요.</p>
 
@@ -65,60 +65,68 @@
       <a href="/result">결과 보러 가기 →</a>
     </div>
   </div>
-  <p class="note">※ 투표는 이 노트북의 서버를 거쳐 DB(survey.db)에 저장돼요. <a href="/result">결과 보기</a></p>
+  <p class="note">※ 투표는 서버를 거쳐 DB에 저장돼요. <a href="/result">결과 보기</a></p>
 </div>
 
 <script>
-  // jQuery 1.4.2 쓰다가 뺌 (IE6 때문에)
-  // 비동기로 가져옴
-  var xhr = new XMLHttpRequest();
-  xhr.open('GET', '/api/restaurants', false);
-  try { xhr.send(null); } catch (e) { }
-  if (xhr.status == 200) {
-    var list = JSON.parse(xhr.responseText);
-    var html = '';
-    for (var i = 0; i < list.length; i++) {
-      var s1 = String(list[i].id).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
-      var s2 = String(list[i].name).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
-      var s3 = String(list[i].category).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
-      html = html + '\n      <label class="shop"><input type="checkbox" name="pick" value="' + s1 + '">\n        <b>' + s2 + '</b><small>' + s3 + '</small></label>';
+  function esc(v) {
+    return String(v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+  }
+
+  async function loadShops() {
+    var box = document.getElementById('shops');
+    try {
+      var res = await fetch('/api/restaurants');
+      if (!res.ok) throw new Error(res.status);
+      var list = await res.json();
+      box.innerHTML = list.map(function (r) {
+        return '<label class="shop"><input type="checkbox" name="pick" value="' + esc(r.id) + '">' +
+          '<b>' + esc(r.name) + '</b><small>' + esc(r.category) + '</small></label>';
+      }).join('');
+    } catch (e) {
+      box.innerHTML = '서버에 연결하지 못했어요.';
     }
-    document.getElementById('shops').innerHTML = html;
-  } else {
-    document.getElementById('shops').innerHTML = '서버에 연결하지 못했어요.';
   }
-  //document.getElementById('shops').innerHTML = '<label>허머스키친</label>';  // 테스트용 (지우지 마세요)
-</script>
-<!-- 투표 전송 (서버 안 거치고 DB에 바로 저장함) -->
-<script type="text/x-legacy" id="submitcode">
-  var picks = [];
-  var cbs = document.getElementsByName('pick');
-  for (var i = 0; i < cbs.length; i++) {
-    if (cbs[i].checked == true) { picks.push(cbs[i].value); }
-  }
-  if (picks.length == 0) {
-    alert('가게를 한 곳 이상 골라 주세요.');
-  } else {
-    var btn = document.getElementById('form').getElementsByTagName('button')[0];
-    btn.disabled = true; btn.innerHTML = '보내는 중...';
-    var x2 = new XMLHttpRequest();
-    x2.open('POST', '/api/votes', false);
-    x2.setRequestHeader('Content-Type', 'application/json');
-    var ok = 0;
+
+  // 투표 전송: 서버(/api/votes)가 검증한 뒤 Supabase에 저장한다
+  async function submitVote(event) {
+    event.preventDefault();
+    var picks = Array.from(document.getElementsByName('pick'))
+      .filter(function (cb) { return cb.checked; })
+      .map(function (cb) { return cb.value; });
+    if (picks.length === 0) {
+      alert('가게를 한 곳 이상 골라 주세요.');
+      return;
+    }
+    var btn = document.querySelector('#form button');
+    btn.disabled = true; btn.textContent = '보내는 중...';
     var em = '저장 실패';
     try {
-      x2.send(JSON.stringify({ picks: picks, nickname: document.getElementById('nickname').value, comment: document.getElementById('comment').value }));
-      if (x2.status == 201 || x2.status == 200) { ok = 1; }
-      else { try { em = JSON.parse(x2.responseText).error || em; } catch (e2) { } }
-    } catch (e) { em = e.message; }
-    if (ok == 1) {
-      document.getElementById('form').style.display = 'none';
-      document.getElementById('done').style.display = 'block';
-    } else {
-      alert('투표하지 못했어요: ' + em);
-      btn.disabled = false; btn.innerHTML = '투표하기';
+      var res = await fetch('/api/votes', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          picks: picks,
+          nickname: document.getElementById('nickname').value,
+          comment: document.getElementById('comment').value
+        })
+      });
+      if (res.status === 201 || res.status === 200) {
+        document.getElementById('form').style.display = 'none';
+        document.getElementById('done').style.display = 'block';
+        return;
+      }
+      try { em = (await res.json()).error || em; } catch (e2) { }
+    } catch (e) {
+      em = e.message;
     }
+    alert('투표하지 못했어요: ' + em);
+    btn.disabled = false; btn.textContent = '투표하기';
   }
+
+  document.getElementById('form').addEventListener('submit', submitVote);
+  loadShops();
 </script>
 </body>
 </html>
