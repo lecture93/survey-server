@@ -134,15 +134,35 @@ class SurveyServerTest(unittest.TestCase):
             status, _, _ = self.request("GET", path)
             self.assertEqual(status, 404, path)
 
-    def test_path_traversal_is_blocked(self):
+    def raw(self, request_bytes):
+        """http.client가 고쳐 보내지 않도록 원시 요청을 그대로 보내고 응답 전체를 받는다"""
         with socket.create_connection(("127.0.0.1", self.port), timeout=10) as s:
-            s.sendall(b"GET /../server.py HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n")
+            s.sendall(request_bytes)
             data = b""
             while chunk := s.recv(4096):
                 data += chunk
         self.assertTrue(data.startswith(b"HTTP/1."), data[:50])
+        return data
+
+    def test_path_traversal_is_blocked(self):
+        data = self.raw(b"GET /../server.py HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n")
         self.assertIn(b" 404 ", data.split(b"\r\n")[0])
         self.assertNotIn(b"SUPABASE", data)
+
+    def test_sibling_folder_with_public_prefix_is_blocked(self):
+        # public_xxx/처럼 이름이 public으로 시작하는 형제 폴더도 열리면 안 된다
+        sibling = tempfile.mkdtemp(prefix="public_", dir=os.path.dirname(PUBLIC))
+        try:
+            with open(os.path.join(sibling, "secret.html"), "wb") as f:
+                f.write(b"SECRET")
+            name = os.path.basename(sibling).encode()
+            data = self.raw(b"GET /../" + name + b"/secret.html HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n")
+            self.assertIn(b" 404 ", data.split(b"\r\n")[0])
+            self.assertNotIn(b"SECRET", data)
+        finally:
+            for f in os.listdir(sibling):
+                os.remove(os.path.join(sibling, f))
+            os.rmdir(sibling)
 
     # ---------- /api/restaurants ----------
     def test_restaurants_list(self):
@@ -197,10 +217,22 @@ class SurveyServerTest(unittest.TestCase):
 
     def test_vote_bad_request_is_400(self):
         for payload in (b"{bad json", {"picks": 5}, {"picks": ["song"], "nickname": 5},
-                        {"picks": ["song"], "comment": ["x"]}):
+                        {"picks": ["song"], "comment": ["x"]},
+                        # picks는 배열만: dict면 키가, 문자열이면 글자가 순회돼 엉뚱하게 저장되던 문제
+                        {"picks": {"song": 1}}, {"picks": "song"}, b'["song"]', b'"song"'):
             status, _, data = self.post_vote(payload)
             self.assertEqual(status, 400, payload)
             self.assertEqual(data, {"error": "잘못된 요청이에요"})
+        self.assertEqual(self.fake.requests, [])
+
+    def test_vote_bad_content_length(self):
+        # 숫자가 아니거나 음수면 400 (음수는 예전엔 연결이 닫힐 때까지 읽으며 멈췄다), 너무 크면 413
+        for value, status in ((b"abc", b" 400 "), (b"-1", b" 400 "), (b"99999999", b" 413 ")):
+            data = self.raw(b"POST /api/votes HTTP/1.1\r\nHost: x\r\nContent-Type: application/json\r\n"
+                            b"Content-Length: " + value + b"\r\n\r\n")
+            head, _, body = data.partition(b"\r\n\r\n")
+            self.assertIn(status, head.split(b"\r\n")[0], value)
+            self.assertIn("error", json.loads(body.decode("utf-8")), value)
         self.assertEqual(self.fake.requests, [])
 
     def test_vote_db_failure_is_502(self):
@@ -268,10 +300,12 @@ class SurveyServerTest(unittest.TestCase):
         self.assertEqual([c["text"] for c in data["comments"]], [f"c{i}" for i in range(25, 5, -1)])
 
     def test_results_db_failure_is_500(self):
-        # 현재 동작 기록: DB 조회 실패 시 본문 없는 500
+        # DB 조회 실패 시 JSON 본문이 있는 500 (프론트가 JSON 파싱에 실패하지 않게)
         self.fake.fail = True
-        status, _, body = self.request("GET", "/api/results")
-        self.assertEqual((status, body), (500, b""))
+        status, headers, body = self.request("GET", "/api/results")
+        self.assertEqual(status, 500)
+        self.assertTrue(headers["content-type"].startswith("application/json"))
+        self.assertEqual(json.loads(body), {"error": "서버 오류가 발생했어요"})
 
     # ---------- GET /api/export.csv ----------
     def test_export_csv(self):
@@ -288,6 +322,24 @@ class SurveyServerTest(unittest.TestCase):
             "2,2026-11-06 00:10:00,익명,송,\r\n"
             "3,2026-11-05 08:59:59,익명,\"송, 케르반, unknown_x\",최고\r\n"
             "4,2026-11-05 09:00:00,영희,미사리밀빛초계국수,\r\n"
+        ))
+
+    def test_export_csv_escapes_formulas(self):
+        # 엑셀이 수식으로 실행하지 않도록 =,+,-,@,탭,CR로 시작하는 셀 앞에 ' 를 붙인다
+        self.seed([
+            {"id": 1, "picks": ["song"], "nickname": "=1+1", "comment": '=HYPERLINK("http://x","클릭")',
+             "created_at": "2026-11-05T00:00:00+00:00"},
+            {"id": 2, "picks": ["@evil"], "nickname": "+a", "comment": "-b",
+             "created_at": "2026-11-05T00:00:00+00:00"},
+            {"id": 3, "picks": ["song"], "nickname": "a=b", "comment": "\tx",
+             "created_at": "2026-11-05T00:00:00+00:00"},
+        ])
+        _, _, body = self.request("GET", "/api/export.csv")
+        self.assertEqual(body.decode("utf-8"), (
+            "﻿번호,시각,닉네임,선택한 가게,한줄평\r\n"
+            "1,2026-11-05 09:00:00,'=1+1,송,\"'=HYPERLINK(\"\"http://x\"\",\"\"클릭\"\")\"\r\n"
+            "2,2026-11-05 09:00:00,'+a,'@evil,'-b\r\n"
+            "3,2026-11-05 09:00:00,a=b,송,'\tx\r\n"
         ))
 
     def test_export_csv_empty(self):

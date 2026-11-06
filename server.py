@@ -12,6 +12,7 @@ import csv
 import io
 import json
 import os
+import traceback
 import urllib.request
 from datetime import datetime, timedelta, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -41,6 +42,7 @@ CONTENT_TYPES = {
     ".svg": "image/svg+xml",
 }
 JSON_TYPE = "application/json; charset=utf-8"
+MAX_BODY = 10 * 1024  # 투표 한 건은 1KB도 안 됨
 
 
 # ---------- 설정 ----------
@@ -142,13 +144,21 @@ def results():
     }
 
 
+CSV_FORMULA_PREFIXES = ("=", "+", "-", "@", "\t", "\r")
+
+
+def csv_safe(value):
+    """엑셀이 수식으로 실행하지 않게 =,+,-,@,탭,CR로 시작하는 값 앞에 ' 를 붙인다"""
+    return "'" + value if value.startswith(CSV_FORMULA_PREFIXES) else value
+
+
 def export_csv():
     buf = io.StringIO()
     w = csv.writer(buf)
     w.writerow(["번호", "시각", "닉네임", "선택한 가게", "한줄평"])
     for row in reversed(all_votes()):  # 오래된 표부터
-        w.writerow([row["id"], row["created_at"], display_name(row["nickname"]),
-                    ", ".join(pick_names(row["picks"])), row["comment"] or ""])
+        w.writerow([row["id"], row["created_at"], csv_safe(display_name(row["nickname"])),
+                    csv_safe(", ".join(pick_names(row["picks"]))), csv_safe(row["comment"] or "")])
     return "﻿" + buf.getvalue()  # BOM: 엑셀에서 한글 안 깨지게
 
 
@@ -160,8 +170,12 @@ def parse_vote(body):
     """요청 본문 → (picks, nickname, comment). 형식이 틀리면 BadRequest."""
     try:
         data = json.loads(body or b"{}")
+        if not isinstance(data, dict):
+            raise BadRequest("본문은 JSON 객체여야 함")
         picks = []
         if "picks" in data:
+            if not isinstance(data["picks"], list):  # dict·문자열을 순회하면 키·글자가 저장됨
+                raise BadRequest("picks는 배열이어야 함")
             for p in data["picks"]:
                 if p in NAMES and p not in picks:
                     picks.append(p)
@@ -195,8 +209,10 @@ def static_file(path):
         path = "/result.html"
     if path in ("/", ""):
         path = "/index.html"
+    root = os.path.normpath(PUBLIC)
     fp = os.path.normpath(PUBLIC + path)
-    if not (fp.startswith(os.path.normpath(PUBLIC)) and os.path.isfile(fp)):
+    # 접두사 비교만 하면 public_old/ 같은 형제 폴더도 통과하므로 경로 단위로 비교
+    if not (os.path.commonpath([fp, root]) == root and os.path.isfile(fp)):
         return 404, "text/plain; charset=utf-8", b"404 Not Found"
     with open(fp, "rb") as f:
         body = f.read()
@@ -220,7 +236,8 @@ class Handler(BaseHTTPRequestHandler):
         try:
             status, ctype, body, extra = route(self.path.split("?")[0])
         except Exception:
-            status, ctype, body, extra = 500, None, b"", {}
+            traceback.print_exc()  # 원인 추적용 (예전엔 로그 없이 삼켰음)
+            status, ctype, body, extra = 500, JSON_TYPE, json_body({"error": "서버 오류가 발생했어요"}), {}
         self.send_response(status)
         if ctype:
             self.send_header("Content-Type", ctype)
@@ -247,7 +264,14 @@ class Handler(BaseHTTPRequestHandler):
     def route_post(self, path):
         if path != "/api/votes":
             return 404, JSON_TYPE, json_body({"error": "not found"}), {}
-        length = int(self.headers.get("Content-Length") or 0)
+        try:
+            length = int(self.headers.get("Content-Length") or 0)
+        except ValueError:
+            length = -1
+        if length < 0:  # rfile.read(-1)은 연결이 닫힐 때까지 읽으며 스레드가 멈춤
+            return 400, JSON_TYPE, json_body({"error": "잘못된 요청이에요"}), {}
+        if length > MAX_BODY:
+            return 413, JSON_TYPE, json_body({"error": "요청이 너무 커요"}), {}
         try:
             picks, nickname, comment = parse_vote(self.rfile.read(length))
         except BadRequest:
