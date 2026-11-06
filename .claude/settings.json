@@ -1,4 +1,12 @@
 {
+  "permissions": {
+    "deny": [
+      "Edit(**/.env)",
+      "Edit(**/.env.*)",
+      "Write(**/.env)",
+      "Write(**/.env.*)"
+    ]
+  },
   "hooks": {
     "PreToolUse": [
       {
@@ -6,7 +14,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "py \"$CLAUDE_PROJECT_DIR/.claude/hooks/protect_env.py\"",
+            "command": "py \"$CLAUDE_PROJECT_DIR/.claude/hooks/protect_env.py\" 2>/dev/null || python3 \"$CLAUDE_PROJECT_DIR/.claude/hooks/protect_env.py\" || exit 2",
             "timeout": 10
           }
         ]
