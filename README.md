@@ -7,6 +7,8 @@
 
 ## 로컬 실행
 
+Python 3.9 이상 (`str.removesuffix`), 표준 라이브러리만 사용.
+
 ```bash
 python -X utf8 server.py
 python -X utf8 -m unittest discover -s tests -v

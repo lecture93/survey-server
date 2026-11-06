@@ -274,6 +274,22 @@ class SurveyServerTest(unittest.TestCase):
         self.assertEqual((status, body), (500, b""))
 
     # ---------- GET /api/export.csv ----------
+    def test_short_fraction_timestamps(self):
+        # 이슈 #7: Postgres는 소수점 끝 0을 잘라 1~6자리로 돌려준다 (3.10 이하 fromisoformat은 3·6자리만 받음)
+        self.seed([
+            {"id": 1, "picks": ["song"], "nickname": "a", "comment": "x",
+             "created_at": "2026-11-05T05:31:29.12+00:00"},
+            {"id": 2, "picks": ["song"], "nickname": "b", "comment": "y",
+             "created_at": "2026-11-05T05:31:30.1Z"},
+        ])
+        status, _, data = self.get_json("/api/results")
+        self.assertEqual(status, 200)
+        self.assertEqual([c["at"] for c in data["comments"]],
+                         ["2026-11-05 14:31:30", "2026-11-05 14:31:29"])
+        status, _, body = self.request("GET", "/api/export.csv")
+        self.assertEqual(status, 200)
+        self.assertIn("2026-11-05 14:31:29", body.decode("utf-8"))
+
     def test_export_csv(self):
         self.seed()
         status, headers, body = self.request("GET", "/api/export.csv")

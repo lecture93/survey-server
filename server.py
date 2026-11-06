@@ -12,6 +12,7 @@ import csv
 import io
 import json
 import os
+import re
 import urllib.request
 from datetime import datetime, timedelta, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -89,8 +90,18 @@ def supabase(method, path, payload=None, prefer=None):
         return json.loads(res.read())
 
 
+_FRACTION = re.compile(r"\.(\d+)")
+
+
 def kst(ts):
-    """'2026-11-05T05:31:29.12+00:00' → '2026-11-05 14:31:29'"""
+    """'2026-11-05T05:31:29.12+00:00' → '2026-11-05 14:31:29'
+
+    Postgres는 소수점 끝의 0을 잘라 1~6자리로 준다. Python 3.10 이하 fromisoformat은
+    3·6자리와 'Z'를 못 읽어서, 6자리로 맞추고 'Z'를 +00:00으로 바꾼 뒤 파싱한다.
+    """
+    ts = _FRACTION.sub(lambda m: "." + m.group(1)[:6].ljust(6, "0"), ts, count=1)
+    if ts.endswith("Z"):
+        ts = ts[:-1] + "+00:00"
     return datetime.fromisoformat(ts).astimezone(KST).strftime("%Y-%m-%d %H:%M:%S")
 
 
