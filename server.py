@@ -12,6 +12,7 @@ import csv
 import io
 import json
 import os
+import sys
 import urllib.request
 from datetime import datetime, timedelta, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -41,6 +42,7 @@ CONTENT_TYPES = {
     ".svg": "image/svg+xml",
 }
 JSON_TYPE = "application/json; charset=utf-8"
+MCP_PATHS = ("/mcp", "/api/mcp")  # 원격 MCP 주소 (vercel.json이 /mcp를 api/index로 보냄)
 
 
 # ---------- 설정 ----------
@@ -235,6 +237,8 @@ class Handler(BaseHTTPRequestHandler):
         self.close_connection = True
 
     def route_get(self, path):
+        if path in MCP_PATHS:  # 상태 없는 서버라 SSE 스트림은 열지 않음 (스펙상 405)
+            return 405, JSON_TYPE, json_body({"error": "MCP는 POST로 호출해요"}), {"Allow": "POST"}
         if path == "/api/restaurants":
             return 200, JSON_TYPE, json_body(RESTAURANTS), {}
         if path == "/api/results":
@@ -245,6 +249,11 @@ class Handler(BaseHTTPRequestHandler):
         return (*static_file(path), {})
 
     def route_post(self, path):
+        if path in MCP_PATHS:
+            import mcp_http  # 원격 MCP (Streamable HTTP, JSON-RPC)
+            length = int(self.headers.get("Content-Length") or 0)
+            status, body = mcp_http.handle(sys.modules[__name__], self.rfile.read(length))
+            return status, JSON_TYPE if body else None, body, {}
         if path != "/api/votes":
             return 404, JSON_TYPE, json_body({"error": "not found"}), {}
         length = int(self.headers.get("Content-Length") or 0)
