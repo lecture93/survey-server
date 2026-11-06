@@ -231,7 +231,7 @@ class SurveyServerTest(unittest.TestCase):
         self.assertEqual(headers["cache-control"], "no-store")
 
         req = self.fake.requests[0]
-        self.assertEqual((req["method"], req["path"]), ("GET", "/rest/v1/votes?select=*&order=id.desc"))
+        self.assertEqual((req["method"], req["path"]), ("GET", "/rest/v1/votes?select=*&order=id.desc&limit=1000&offset=0"))
         self.assertEqual(req["headers"]["apikey"], KEY)
         self.assertEqual(req["headers"]["authorization"], "Bearer " + KEY)
 
@@ -274,6 +274,22 @@ class SurveyServerTest(unittest.TestCase):
         self.assertEqual((status, body), (500, b""))
 
     # ---------- GET /api/export.csv ----------
+    def test_more_than_max_rows(self):
+        # 이슈 #5: PostgREST가 한 번에 max_rows까지만 줘도 끝까지 읽어 집계한다
+        self.fake.max_rows = 3
+        rows = [{"id": i, "picks": ["song"], "nickname": "", "comment": f"c{i}",
+                 "created_at": "2026-11-05T00:00:00+00:00"} for i in range(1, 8)]
+        self.seed(rows)
+        status, _, data = self.get_json("/api/results")
+        self.assertEqual(status, 200)
+        self.assertEqual(data["voters"], 7)
+        self.assertEqual(data["ranking"][0], {"id": "song", "name": "송", "category": "칼국수·수제비",
+                                              "votes": 7, "pct": 100})
+        self.assertEqual([c["text"] for c in data["comments"]], [f"c{i}" for i in range(7, 0, -1)])
+        status, _, body = self.request("GET", "/api/export.csv")
+        lines = body.decode("utf-8-sig").splitlines()
+        self.assertEqual([l.split(",")[0] for l in lines[1:]], [str(i) for i in range(1, 8)])
+
     def test_export_csv(self):
         self.seed()
         status, headers, body = self.request("GET", "/api/export.csv")

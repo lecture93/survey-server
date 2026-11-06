@@ -20,6 +20,7 @@ HOST, PORT = "127.0.0.1", 8000  # 이 노트북에서만 접속
 BASE = os.path.dirname(os.path.abspath(__file__))
 PUBLIC = os.path.join(BASE, "public")
 KST = timezone(timedelta(hours=9))
+PAGE_SIZE = 1000  # Supabase max_rows 기본값
 
 # 투표 후보. DB의 picks에는 id가 저장되므로 id를 바꾸면 기존 표가 집계에서 빠진다.
 RESTAURANTS = [
@@ -95,8 +96,17 @@ def kst(ts):
 
 
 def all_votes():
-    """최신 표부터. created_at은 KST 문자열로 바꿔 돌려준다."""
-    rows = supabase("GET", "votes?select=*&order=id.desc")
+    """최신 표부터. created_at은 KST 문자열로 바꿔 돌려준다.
+
+    PostgREST는 한 번에 max_rows(기본 1000)행까지만 주고 조용히 자른다. 서버 쪽 max_rows가
+    PAGE_SIZE보다 작을 수도 있어서, 빈 페이지가 올 때까지 offset을 넘겨 읽는다.
+    """
+    rows = []
+    while True:
+        page = supabase("GET", f"votes?select=*&order=id.desc&limit={PAGE_SIZE}&offset={len(rows)}")
+        if not page:
+            break
+        rows.extend(page)
     for row in rows:
         row["created_at"] = kst(row["created_at"])
     return rows
