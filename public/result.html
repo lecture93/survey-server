@@ -36,21 +36,6 @@
   .meta { display:block; color:var(--muted); font-size:12px; margin-top:4px; }
   .note { margin-top:8px; font-size:13px; color:var(--muted); text-align:center; }
 
-  /* AI 입력창 */
-  .ai { margin-top:16px; background:var(--card); border-radius:16px; padding:22px; box-shadow:0 4px 20px rgba(0,0,0,.06); }
-  .ai h2 { margin:0 0 4px; font-size:17px; }
-  .ai p.hint-line { margin:0 0 12px; color:var(--muted); font-size:13px; }
-  .ai form { display:flex; gap:8px; }
-  .ai input { flex:1; min-width:0; padding:12px; border:1px solid #e5e7eb; border-radius:10px; font:inherit; }
-  .ai button { width:auto; flex:none; padding:12px 18px; border:0; border-radius:10px; background:var(--accent); color:#fff; font-weight:700; font-size:15px; cursor:pointer; }
-  .ai button:disabled { opacity:.6; cursor:default; }
-  .ai .out { margin-top:12px; font-size:14px; line-height:1.6; white-space:pre-wrap; }
-  .ai .out:empty { display:none; }
-  .ai .out.err { color:#b91c1c; }
-  .ai .log { list-style:none; margin:12px 0 0; padding:0; font-size:14px; line-height:1.6; }
-  .ai .log li { padding:10px 0; border-top:1px solid #eef0f6; white-space:pre-wrap; }
-  .ai .log li.q { color:var(--muted); font-weight:600; }
-  .ai .log li.err { color:#b91c1c; }
 </style>
 </head>
 <body>
@@ -67,15 +52,6 @@
   <div class="card"><h2>득표 순위</h2><div id="ranking"></div></div>
   <div class="card"><h2>한줄평</h2><ul class="comments" id="comments"></ul></div>
 
-  <section class="ai" id="ai-ask">
-    <h2>🤖 결과에 대해 물어보기</h2>
-    <p class="hint-line">예: "1위는 왜 1위야?", "한줄평에서 많이 추천한 메뉴는?", "중동 음식 좋아하면 어디 가?"</p>
-    <form id="ai-ask-form">
-      <input type="text" id="ai-ask-text" maxlength="300" placeholder="투표 결과에 대해 물어보세요" autocomplete="off">
-      <button type="submit">물어보기</button>
-    </form>
-    <ul class="log" id="ai-ask-log"></ul>
-  </section>
   <p class="note">서버 DB에서 5초마다 새로 읽어와요 · 마지막 갱신 <span id="updated">-</span></p>
 </div>
 
@@ -132,35 +108,6 @@
   eval(document.getElementById('loadcode').text);
   setInterval("eval(document.getElementById('loadcode').text)", 5000);
 </script>
-<script>
-  // 결과 분석 Q&A: 서버(/api/ai/ask)가 현재 결과·한줄평을 근거로 답한다
-
-  async function aiPost(url, body) {
-    var res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
-    var data = {};
-    try { data = await res.json(); } catch (e) { }
-    if (!res.ok) throw new Error(data.error || ('오류 ' + res.status));
-    return data;
-  }
-
-  document.getElementById('ai-ask-form').addEventListener('submit', async function (ev) {
-    ev.preventDefault();
-    var input = document.getElementById('ai-ask-text');
-    var log = document.getElementById('ai-ask-log');
-    var btn = this.querySelector('button');
-    var q = input.value.trim();
-    if (!q) { input.focus(); return; }
-    var qi = document.createElement('li'); qi.className = 'q'; qi.textContent = 'Q. ' + q;
-    var ai = document.createElement('li'); ai.textContent = '분석하는 중...';
-    log.prepend(ai); log.prepend(qi);
-    btn.disabled = true; input.value = '';
-    try {
-      ai.textContent = (await aiPost('/api/ai/ask', { question: q })).answer;
-    } catch (e) {
-      ai.className = 'err'; ai.textContent = e.message;
-    }
-    btn.disabled = false; input.focus();
-  });
-</script>
+<script src="/chat.js" defer></script>
 </body>
 </html>

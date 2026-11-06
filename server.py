@@ -254,7 +254,7 @@ class Handler(BaseHTTPRequestHandler):
             length = int(self.headers.get("Content-Length") or 0)
             status, body = mcp_http.handle(sys.modules[__name__], self.rfile.read(length))
             return status, JSON_TYPE if body else None, body, {}
-        if path in ("/api/ai/vote", "/api/ai/ask"):
+        if path in ("/api/ai/vote", "/api/ai/ask", "/api/ai/chat"):
             return self.route_ai(path)
         if path != "/api/votes":
             return 404, JSON_TYPE, json_body({"error": "not found"}), {}
@@ -290,6 +290,8 @@ class Handler(BaseHTTPRequestHandler):
         try:
             if path == "/api/ai/ask":
                 return 200, JSON_TYPE, json_body({"answer": ai.ask(sys.modules[__name__], data.get("question"))}), {}
+            if path == "/api/ai/chat":
+                return self.route_ai_chat(ai, data.get("messages"), err)
             picks, nickname, comment, reply = ai.vote(sys.modules[__name__], data.get("text"))
         except ai.Unusable as e:
             return err(400, str(e))
@@ -305,6 +307,19 @@ class Handler(BaseHTTPRequestHandler):
             return err(502, "저장에 실패했어요. 잠시 후 다시 시도해 주세요")
         return 201, JSON_TYPE, json_body({"id": vote_id, "picks": pick_names(picks), "nickname": nickname,
                                           "comment": comment, "reply": reply}), {}
+
+    def route_ai_chat(self, ai, messages, err):
+        """왼쪽 챗봇: {messages:[{role,content}]} → {reply, vote|null}. 투표를 원하면 대신 저장(201)."""
+        out = ai.converse(sys.modules[__name__], messages)
+        if not out["vote"]:
+            return 200, JSON_TYPE, json_body({"reply": out["reply"], "vote": None}), {}
+        v = out["vote"]
+        try:
+            vote_id = save_vote(v["picks"], v["nickname"], v["comment"])
+        except Exception:
+            return err(502, "저장에 실패했어요. 잠시 후 다시 시도해 주세요")
+        return 201, JSON_TYPE, json_body({"reply": out["reply"], "vote": {
+            "id": vote_id, "picks": pick_names(v["picks"]), "nickname": v["nickname"], "comment": v["comment"]}}), {}
 
 
 if __name__ == "__main__":
