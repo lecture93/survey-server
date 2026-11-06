@@ -254,6 +254,8 @@ class Handler(BaseHTTPRequestHandler):
             length = int(self.headers.get("Content-Length") or 0)
             status, body = mcp_http.handle(sys.modules[__name__], self.rfile.read(length))
             return status, JSON_TYPE if body else None, body, {}
+        if path in ("/api/ai/vote", "/api/ai/ask"):
+            return self.route_ai(path)
         if path != "/api/votes":
             return 404, JSON_TYPE, json_body({"error": "not found"}), {}
         length = int(self.headers.get("Content-Length") or 0)
@@ -268,6 +270,41 @@ class Handler(BaseHTTPRequestHandler):
         except Exception:
             return 502, JSON_TYPE, json_body({"error": "저장에 실패했어요. 잠시 후 다시 시도해 주세요"}), {}
         return 201, JSON_TYPE, json_body({"id": vote_id}), {}
+
+    def route_ai(self, path):
+        """AI 입력창: /api/ai/vote {text} → 자연어로 투표 저장, /api/ai/ask {question} → 결과 분석 답변."""
+        import ai  # OpenRouter 도우미 (키가 없으면 503)
+
+        def err(status, message):
+            return status, JSON_TYPE, json_body({"error": message}), {}
+
+        if not ai.configured():
+            return err(503, "AI 기능이 아직 설정되지 않았어요 (OPENROUTER_API_KEY)")
+        length = int(self.headers.get("Content-Length") or 0)
+        try:
+            data = json.loads(self.rfile.read(length) or b"{}")
+            if not isinstance(data, dict):
+                raise ValueError
+        except ValueError:
+            return err(400, "잘못된 요청이에요")
+        try:
+            if path == "/api/ai/ask":
+                return 200, JSON_TYPE, json_body({"answer": ai.ask(sys.modules[__name__], data.get("question"))}), {}
+            picks, nickname, comment, reply = ai.vote(sys.modules[__name__], data.get("text"))
+        except ai.Unusable as e:
+            return err(400, str(e))
+        except BadRequest:
+            return err(400, "잘못된 요청이에요")
+        except ai.AIError:
+            return err(502, "AI 응답을 받지 못했어요. 잠시 후 다시 시도해 주세요")
+        except Exception:  # 결과 조회(DB) 실패 등
+            return err(502, "데이터를 읽지 못했어요. 잠시 후 다시 시도해 주세요")
+        try:
+            vote_id = save_vote(picks, nickname, comment)
+        except Exception:
+            return err(502, "저장에 실패했어요. 잠시 후 다시 시도해 주세요")
+        return 201, JSON_TYPE, json_body({"id": vote_id, "picks": pick_names(picks), "nickname": nickname,
+                                          "comment": comment, "reply": reply}), {}
 
 
 if __name__ == "__main__":
